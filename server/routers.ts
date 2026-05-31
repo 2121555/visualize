@@ -5,125 +5,15 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import {
-  createLead,
-  getAllLeads,
-  getLeadById,
-  updateLeadStatus,
-  getLeadStats,
-  addLeadNote,
-  getLeadNotes,
+  createLead, getAllLeads, getLeadById, updateLeadStatus, updateLeadScoring,
+  getLeadStats, addLeadNote, getLeadNotes, getCityStats, getRecentActivity,
+  createCompletedJob, getCompletedJobs, getNearbyCompletedJobs, getCompletedJobById,
 } from "./db";
 import { notifyOwner } from "./_core/notification";
-import { invokeLLM } from "./_core/llm";
+import { calculateLeadScore } from "./scoring";
+import { verifyAddressInHailZone } from "./addressVerification";
+import { storagePut } from "./storage";
 
-// ─── Hail Swath Data ─────────────────────────────────────────────────────────
-// Based on NWS Chicago confirmed reports for March 10, 2026
-const HAIL_SWATH_DATA: Record<string, {
-  confirmed: boolean;
-  hailSize: string;
-  hailSizeInches: number;
-  description: string;
-  zipCodes: string[];
-}> = {
-  "naperville": {
-    confirmed: true,
-    hailSize: '1.00"–1.25"',
-    hailSizeInches: 1.25,
-    description: "Quarter to half-dollar sized hail confirmed by NWS Chicago trained spotters in the Naperville corridor on March 10, 2026.",
-    zipCodes: ["60540", "60563", "60564", "60565", "60566", "60567"],
-  },
-  "willow-springs": {
-    confirmed: true,
-    hailSize: '1.00"–1.50"',
-    hailSizeInches: 1.5,
-    description: "Quarter to ping-pong sized hail confirmed in the Willow Springs area on March 10, 2026 as the supercell tracked northeast through Cook County.",
-    zipCodes: ["60480"],
-  },
-  "sag-bridge": {
-    confirmed: true,
-    hailSize: '1.00"–1.25"',
-    hailSizeInches: 1.25,
-    description: "Quarter to half-dollar sized hail confirmed in the Sag Bridge/Lemont area on March 10, 2026.",
-    zipCodes: ["60525", "60439"],
-  },
-  "palisades": {
-    confirmed: true,
-    hailSize: '1.00"–1.25"',
-    hailSizeInches: 1.25,
-    description: "Quarter to half-dollar sized hail confirmed in the Palisades area on March 10, 2026.",
-    zipCodes: ["60525", "60480"],
-  },
-};
-
-// ─── Lead Scoring ─────────────────────────────────────────────────────────────
-function calculateLeadScore(data: {
-  targetCity: string;
-  contractorSelected: string;
-  claimFiled: string;
-  addressVerified: boolean;
-  qrCodeScanned?: boolean;
-}): number {
-  let score = 0;
-  // In confirmed hail zone
-  if (HAIL_SWATH_DATA[data.targetCity]?.confirmed) score += 25;
-  // Address verified against swath
-  if (data.addressVerified) score += 20;
-  // No contractor selected yet (opportunity)
-  if (data.contractorSelected === "no" || data.contractorSelected === "unknown") score += 20;
-  // No claim filed yet (we can help)
-  if (data.claimFiled === "no") score += 15;
-  // Claim filed (motivated, needs contractor)
-  if (data.claimFiled === "yes") score += 10;
-  // QR code scan (high intent)
-  if (data.qrCodeScanned) score += 10;
-  return Math.min(score, 100);
-}
-
-// ─── Address Verification ─────────────────────────────────────────────────────
-function verifyAddressInSwath(address: string, city: string): {
-  verified: boolean;
-  hailSize: string;
-  confirmationMessage: string;
-} {
-  const cityKey = city.toLowerCase().replace(/\s+/g, "-");
-  const swath = HAIL_SWATH_DATA[cityKey];
-
-  if (!swath) {
-    return {
-      verified: false,
-      hailSize: "Unknown",
-      confirmationMessage: "We were unable to verify this address against our storm data.",
-    };
-  }
-
-  // Check if address contains a zip code that matches
-  const addressUpper = address.toUpperCase();
-  const zipMatch = swath.zipCodes.some(zip => addressUpper.includes(zip));
-
-  // For cities in our confirmed swath, we confirm based on city match
-  // In production this would use a geocoding + polygon intersection API
-  const verified = swath.confirmed;
-
-  const confirmationMessage = verified
-    ? `✓ Confirmed: Your property at ${address} was located within the direct path of the March 10, 2026 hail event. NWS Chicago confirmed ${swath.hailSize} hail in your area — large enough to cause significant roof damage that may not be visible from the ground. Your insurance claim window is open until March 10, 2027.`
-    : `We were unable to confirm your address in our storm database. A free inspection can still determine if your property sustained damage.`;
-
-  return { verified, hailSize: swath.hailSize, confirmationMessage };
-}
-
-// ─── Next Action Assignment ───────────────────────────────────────────────────
-function assignNextAction(data: {
-  contractorSelected: string;
-  claimFiled: string;
-  bestContactTime: string;
-}): string {
-  if (data.contractorSelected === "yes") return "Call within 24h — competitor may be selected. Present differentiators immediately.";
-  if (data.claimFiled === "yes") return "Schedule inspection ASAP — claim is open, homeowner needs contractor now.";
-  if (data.claimFiled === "no") return "Schedule free inspection + walk homeowner through claim filing process.";
-  return "Call to qualify — determine claim status and contractor selection.";
-}
-
-// ─── Router ───────────────────────────────────────────────────────────────────
 export const appRouter = router({
   system: systemRouter,
 
@@ -136,56 +26,55 @@ export const appRouter = router({
     }),
   }),
 
-  // ─── Public: Address Verification ─────────────────────────────────────────
   leads: router({
+    // ─── Public: Address Verification ───────────────────────────────────
     verifyAddress: publicProcedure
       .input(z.object({
         address: z.string().min(5),
         city: z.string(),
       }))
-      .query(({ input }) => {
-        const result = verifyAddressInSwath(input.address, input.city);
+      .mutation(async ({ input }) => {
+        const result = await verifyAddressInHailZone(input.address, input.city);
         return result;
       }),
 
-    // ─── Public: Submit Lead ─────────────────────────────────────────────────
+    // ─── Public: Submit Lead ────────────────────────────────────────────
     submit: publicProcedure
       .input(z.object({
-        // Step 1
         address: z.string().min(5),
         city: z.string(),
         state: z.string().default("IL"),
         zip: z.string().min(5),
         targetCity: z.enum(["naperville", "willow-springs", "sag-bridge", "palisades"]),
-        // Step 2
         firstName: z.string().min(1),
         lastName: z.string().min(1),
         phone: z.string().min(10),
         email: z.string().email(),
-        // Step 3
         contractorSelected: z.enum(["yes", "no", "unknown"]).default("unknown"),
         claimFiled: z.enum(["yes", "no", "unknown"]).default("unknown"),
         bestContactTime: z.enum(["morning", "afternoon", "evening", "anytime"]).default("anytime"),
-        // Meta
+        source: z.enum(["landing_page", "qr_code", "direct", "referral"]).default("landing_page"),
         qrCodeScanned: z.boolean().default(false),
-        utmSource: z.string().optional(),
-        utmMedium: z.string().optional(),
-        utmCampaign: z.string().optional(),
+        // Address verification results from Step 1
+        addressVerified: z.boolean().default(false),
+        lat: z.string().optional(),
+        lng: z.string().optional(),
+        hailSizeConfirmed: z.string().optional(),
+        stormConfirmationMsg: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const verification = verifyAddressInSwath(input.address, input.targetCity);
-        const score = calculateLeadScore({
+        // Calculate ROI-first score
+        const scoring = calculateLeadScore({
           targetCity: input.targetCity,
           contractorSelected: input.contractorSelected,
           claimFiled: input.claimFiled,
-          addressVerified: verification.verified,
+          addressVerified: input.addressVerified,
           qrCodeScanned: input.qrCodeScanned,
-        });
-        const nextAction = assignNextAction({
-          contractorSelected: input.contractorSelected,
-          claimFiled: input.claimFiled,
-          bestContactTime: input.bestContactTime,
-        });
+          source: input.source,
+          status: "new",
+          createdAt: new Date(),
+          firstName: input.firstName,
+        } as any);
 
         await createLead({
           address: input.address,
@@ -200,24 +89,29 @@ export const appRouter = router({
           contractorSelected: input.contractorSelected,
           claimFiled: input.claimFiled,
           bestContactTime: input.bestContactTime,
-          addressVerified: verification.verified,
-          hailSizeConfirmed: verification.hailSize,
-          stormConfirmationMessage: verification.confirmationMessage,
-          leadScore: score,
-          nextAction,
+          addressVerified: input.addressVerified,
+          lat: input.lat || null,
+          lng: input.lng || null,
+          hailSizeConfirmed: input.hailSizeConfirmed || null,
+          stormConfirmationMsg: input.stormConfirmationMsg || null,
+          leadScore: scoring.score,
+          estimatedJobValue: scoring.estimatedJobValue,
+          closeProbability: String(scoring.closeProbability),
+          expectedReturn: scoring.expectedReturn,
+          scoreBreakdown: scoring.breakdown,
+          nextAction: scoring.nextAction,
+          nextActionDue: scoring.nextActionDue,
           status: "new",
-          source: "landing_page",
+          source: input.source,
           qrCodeScanned: input.qrCodeScanned,
-          utmSource: input.utmSource,
-          utmMedium: input.utmMedium,
-          utmCampaign: input.utmCampaign,
         });
 
         // Notify owner
         try {
+          const tierLabel = scoring.tier === "high_return" ? "HIGH RETURN" : scoring.tier === "moderate_return" ? "MODERATE" : "LOW";
           await notifyOwner({
-            title: `🌩️ New Lead: ${input.firstName} ${input.lastName} — ${input.targetCity}`,
-            content: `Address: ${input.address}, ${input.city} ${input.zip}\nPhone: ${input.phone}\nEmail: ${input.email}\nClaim Filed: ${input.claimFiled}\nContractor Selected: ${input.contractorSelected}\nLead Score: ${score}\nNext Action: ${nextAction}`,
+            title: `New Lead: ${input.firstName} ${input.lastName} — ${tierLabel} ($${scoring.expectedReturn}/hr)`,
+            content: `Address: ${input.address}, ${input.city} ${input.zip}\nPhone: ${input.phone}\nEmail: ${input.email}\nClaim Filed: ${input.claimFiled}\nContractor: ${input.contractorSelected}\nEstimated Job: $${scoring.estimatedJobValue}\nExpected Return: $${scoring.expectedReturn}/hr\nScore: ${scoring.score}/100\nNext Action: ${scoring.nextAction}`,
           });
         } catch (e) {
           console.warn("Notification failed:", e);
@@ -225,14 +119,27 @@ export const appRouter = router({
 
         return {
           success: true,
-          score,
-          verified: verification.verified,
-          confirmationMessage: verification.confirmationMessage,
-          nextAction,
+          score: scoring.score,
+          tier: scoring.tier,
+          verified: input.addressVerified,
+          confirmationMessage: input.stormConfirmationMsg || "",
         };
       }),
 
-    // ─── Protected: Admin Queries ────────────────────────────────────────────
+    // ─── Public: Social Proof ───────────────────────────────────────────
+    cityStats: publicProcedure
+      .input(z.object({ city: z.string().optional() }).optional())
+      .query(async ({ input }) => {
+        return await getCityStats(input?.city);
+      }),
+
+    recentActivity: publicProcedure
+      .input(z.object({ city: z.string().optional(), limit: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        return await getRecentActivity(input?.city, input?.limit || 5);
+      }),
+
+    // ─── Protected: Admin Queries ───────────────────────────────────────
     list: protectedProcedure
       .input(z.object({
         city: z.string().optional(),
@@ -258,21 +165,38 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         await updateLeadStatus(input.id, input.status, input.nextAction);
+        // Re-score after status change
+        const lead = await getLeadById(input.id);
+        if (lead) {
+          const scoring = calculateLeadScore(lead as any);
+          await updateLeadScoring(input.id, {
+            leadScore: scoring.score,
+            estimatedJobValue: scoring.estimatedJobValue,
+            closeProbability: scoring.closeProbability,
+            expectedReturn: scoring.expectedReturn,
+            scoreBreakdown: scoring.breakdown,
+            nextAction: input.nextAction || scoring.nextAction,
+            nextActionDue: scoring.nextActionDue,
+          });
+        }
         return { success: true };
       }),
 
-    stats: protectedProcedure
-      .query(async () => {
-        return await getLeadStats();
-      }),
+    stats: protectedProcedure.query(async () => {
+      return await getLeadStats();
+    }),
 
     addNote: protectedProcedure
       .input(z.object({
         leadId: z.number(),
-        note: z.string().min(1),
+        content: z.string().min(1),
       }))
-      .mutation(async ({ input }) => {
-        await addLeadNote({ leadId: input.leadId, note: input.note });
+      .mutation(async ({ input, ctx }) => {
+        await addLeadNote({
+          leadId: input.leadId,
+          content: input.content,
+          authorName: ctx.user?.name || "Admin",
+        });
         return { success: true };
       }),
 
@@ -280,6 +204,64 @@ export const appRouter = router({
       .input(z.object({ leadId: z.number() }))
       .query(async ({ input }) => {
         return await getLeadNotes(input.leadId);
+      }),
+  }),
+
+  // ─── Completed Jobs (Jones Collateral) ──────────────────────────────────────
+  completedJobs: router({
+    list: protectedProcedure
+      .input(z.object({ city: z.string().optional() }).optional())
+      .query(async ({ input }) => {
+        return await getCompletedJobs(input?.city);
+      }),
+
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const job = await getCompletedJobById(input.id);
+        if (!job) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found" });
+        return job;
+      }),
+
+    nearby: protectedProcedure
+      .input(z.object({
+        lat: z.number(),
+        lng: z.number(),
+        radiusMiles: z.number().default(1),
+      }))
+      .query(async ({ input }) => {
+        return await getNearbyCompletedJobs(input.lat, input.lng, input.radiusMiles);
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        address: z.string().min(5),
+        city: z.string(),
+        targetCity: z.enum(["naperville", "willow-springs", "sag-bridge", "palisades"]),
+        lat: z.string().optional(),
+        lng: z.string().optional(),
+        jobType: z.string().default("Roof Replacement"),
+        estimatedValue: z.number().optional(),
+        completionDate: z.string().optional(),
+        permissionLevel: z.enum(["full", "anonymous", "count_only"]).default("anonymous"),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await createCompletedJob({
+          address: input.address,
+          city: input.city,
+          targetCity: input.targetCity,
+          lat: input.lat || null,
+          lng: input.lng || null,
+          jobType: input.jobType,
+          estimatedValue: input.estimatedValue || null,
+          completionDate: input.completionDate ? new Date(input.completionDate) : null,
+          permissionLevel: input.permissionLevel,
+          notes: input.notes || null,
+          beforePhotos: [],
+          afterPhotos: [],
+        });
+        return { success: true };
       }),
   }),
 });

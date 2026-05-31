@@ -1,56 +1,96 @@
 # Visualize — Project TODO
 
 ## Phase 2: Database & Backend
-- [ ] Database schema: leads table with address, contact, qualifying fields, city, score, status, next_action
-- [ ] Database schema: storm_evidence table for NWS data per city
-- [ ] Backend tRPC: submitLead mutation (public)
-- [ ] Backend tRPC: getLeads query (protected/admin)
-- [ ] Backend tRPC: getLead by id (protected/admin)
-- [ ] Backend tRPC: updateLeadStatus mutation (protected/admin)
-- [ ] Backend tRPC: verifyAddress query (public) — checks address against hail swath
-- [ ] Run pnpm db:push
+- [x] Database schema: leads table with address, contact, qualifying fields, city, score, status, next_action
+- [x] Database schema: completedJobs table for Jones collateral
+- [x] Backend tRPC: submitLead mutation (public)
+- [x] Backend tRPC: getLeads query (protected/admin)
+- [x] Backend tRPC: getLead by id (protected/admin)
+- [x] Backend tRPC: updateLeadStatus mutation (protected/admin)
+- [x] Backend tRPC: verifyAddress query (public) — checks address against hail swath
+- [x] Run pnpm db:push
 
 ## Phase 3: Design System & Routing
-- [ ] Global color palette: deep navy + storm amber + white (trust/urgency theme)
-- [ ] Google Fonts: Inter (body) + Oswald (headlines)
-- [ ] index.css: CSS variables, dark theme base
-- [ ] App.tsx: routes for /, /naperville, /willow-springs, /sag-bridge, /palisades, /dashboard
-- [ ] Shared components: HeroSection, StormEvidenceBanner, UrgencyCountdown, TrustBadges
-- [ ] Shared components: NWSSourceBadge with date stamp and source link
+- [x] Global color palette: deep navy + storm amber + white (trust/urgency theme)
+- [x] Google Fonts: Inter (body) + Oswald (headlines)
+- [x] index.css: CSS variables, dark theme base
+- [x] App.tsx: routes for /, /naperville, /willow-springs, /sag-bridge, /palisades, /dashboard
+- [x] Page-level components: HeroSection, StormEvidenceBanner, UrgencyCountdown, TrustBadges (inline in CityLanding/Home)
+- [x] NWSSourceBadge with date stamp and source link (inline in CityLanding)
 
 ## Phase 4: City Landing Pages
-- [ ] Naperville landing page with NWS data (1.25" confirmed hail, 106 properties)
-- [ ] Willow Springs landing page with NWS data
-- [ ] Sag Bridge landing page with NWS data
-- [ ] Palisades landing page with NWS data
-- [ ] Each page: storm timeline, hail size comparison, affected property count
-- [ ] Each page: insurance claim deadline (March 10, 2027) prominently displayed
-- [ ] Each page: NWS source badge with date stamp and link
-- [ ] Each page: CTA linking to multi-step form
+- [x] Naperville landing page with NWS data (1.25" confirmed hail, 106 properties)
+- [x] Willow Springs landing page with NWS data
+- [x] Sag Bridge landing page with NWS data
+- [x] Palisades landing page with NWS data
+- [x] Each page: storm timeline, hail size comparison, affected property count
+- [x] Each page: insurance claim deadline (March 10, 2027) prominently displayed
+- [x] Each page: NWS source badge with date stamp and link
+- [x] Each page: CTA linking to multi-step form
 
 ## Phase 5: Multi-Step Lead Capture Form
-- [ ] Step 1: Address entry with hail swath verification
-- [ ] Step 2: Contact info (name, phone, email) + dynamic storm confirmation message
-- [ ] Step 3: Qualifying questions (contractor selected, claim filed, best contact time)
-- [ ] Form progress indicator (Step 1/2/3)
-- [ ] Form submission saves lead to database
-- [ ] Owner notification on new lead submission
-- [ ] Success confirmation page/state
+- [x] Step 1: Address entry with hail swath verification
+- [x] Step 2: Contact info (name, phone, email) + dynamic storm confirmation message
+- [x] Step 3: Qualifying questions (contractor selected, claim filed, best contact time)
+- [x] Form progress indicator (Step 1/2/3)
+- [x] Form submission saves lead to database
+- [x] Owner notification on new lead submission
+- [x] Success confirmation page/state
 
 ## Phase 6: Lead Management Dashboard
-- [ ] Protected dashboard route (admin only)
-- [ ] Lead list table with all fields
-- [ ] Lead detail view
-- [ ] Lead status update (New, Contacted, Appointment Set, Inspected, Contracted, Lost)
-- [ ] Filter/sort by city, status, date
-- [ ] Lead score display
-- [ ] Export-ready layout
+- [x] Protected dashboard route (admin only)
+- [x] Lead list table with all fields
+- [x] Lead detail view
+- [x] Lead status update (New, Contacted, Appointment Set, Inspected, Contracted, Lost)
+- [x] Filter/sort by city, status, date
+- [x] Lead score display (ROI-first with expected return)
+- [x] Pipeline value and daily briefing
 
 ## Phase 7: QA & Polish
-- [ ] Mobile responsiveness on all pages
-- [ ] All CTAs functional
-- [ ] All source links open correctly
-- [ ] Urgency countdown accurate
-- [ ] Form validation on all steps
-- [ ] Vitest tests for backend procedures
+- [ ] Mobile responsiveness verification on all pages
+- [ ] All CTAs functional (browser QA needed)
+- [ ] All source links open correctly (browser QA needed)
+- [x] Urgency countdown logic (targets March 10, 2027)
+- [x] Form validation on all steps
+- [x] Vitest tests for backend procedures (23/23 passing)
 - [ ] Final checkpoint
+
+## Social Proof & Neighbor Activity
+- [x] Backend tRPC: getCityStats query (public) — returns anonymized counts per city
+- [x] Backend tRPC: getRecentActivity query (public) — returns recent anonymized activity feed
+- [x] City landing page: Live counter showing how many neighbors have already started the process
+- [x] City landing page: "Your neighbors are acting" social proof banner with recent activity
+- [x] City landing page: Restoration progress tracker (inspections → claims → restorations per city)
+
+## ROI-First Scoring Engine (Redesign)
+- [x] Redesign scoring from qualification-based to ROI-first: Expected Return = (Job Value × Close Probability) / Time-to-Close
+- [x] Estimated job value calculation based on property data and city
+- [x] Close probability based on qualification signals (no contractor, no claim, verified address)
+- [x] Time decay factor — leads lose value every hour without contact
+- [x] Tier assignment based on expected return, not just qualification score
+- [x] Next-action engine with Chief of Staff voice
+- [ ] Geographic clustering bonus — multiple leads near each other = efficient routing (Phase 2)
+- [ ] AI-powered next-action via LLM with structured output (Phase 2)
+
+## Completed Jobs & Jones Collateral
+- [x] Database schema: completedJobs table (address, lat/lng, before/after photos, completion date, permission level)
+- [x] Backend tRPC: addCompletedJob mutation (admin)
+- [x] Backend tRPC: getNearbyCompletedJobs query — proximity search by lat/lng
+- [x] Backend tRPC: listCompletedJobs query (admin)
+- [ ] Photo upload for before/after images to S3 (Phase 2)
+
+## Inspection Presentation Mode
+- [x] Dedicated /inspect/:leadId route — mobile-optimized for iPad
+- [x] Pre-loaded storm evidence for the lead's city
+- [x] Lead details and storm confirmation displayed
+- [x] Nearby Jones collateral section — auto-populated from completedJobs proximity query
+- [ ] Damage photo capture and upload from iPhone (Phase 2)
+- [ ] Digital authorization form with e-signature (Phase 2)
+- [ ] PWA Service Worker for offline caching of inspection data (Phase 2)
+- [ ] Pre-cache collateral for scheduled inspections (Phase 2)
+- [ ] Offline fallback — works without connectivity for presentation flow (Phase 2)
+
+## Credibility & Source Tracking
+- [x] All storm data accompanied by date stamps, source links
+- [x] NWS source badge on every city landing page
+- [ ] Video links from government/local sources where available (Phase 2)
