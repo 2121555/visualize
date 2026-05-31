@@ -8,6 +8,13 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import {
+  dailyBriefingHandler,
+  deadlineEscalationHandler,
+  inspectionFollowupHandler,
+  milestoneCheckHandler,
+  dripSequenceHandler,
+} from "../scheduledHandlers";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -36,6 +43,14 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+
+  // ─── Scheduled Handlers (Heartbeat Cron Callbacks) ──────────────────────
+  app.post("/api/scheduled/daily-briefing", dailyBriefingHandler);
+  app.post("/api/scheduled/deadline-escalation", deadlineEscalationHandler);
+  app.post("/api/scheduled/inspection-followup", inspectionFollowupHandler);
+  app.post("/api/scheduled/milestone-check", milestoneCheckHandler);
+  app.post("/api/scheduled/drip-sequence", dripSequenceHandler);
+
   // tRPC API
   app.use(
     "/api/trpc",

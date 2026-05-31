@@ -9,10 +9,16 @@ import {
   getLeadStats, addLeadNote, getLeadNotes, getCityStats, getRecentActivity,
   createCompletedJob, getCompletedJobs, getNearbyCompletedJobs, getCompletedJobById,
 } from "./db";
-import { notifyOwner } from "./_core/notification";
 import { calculateLeadScore } from "./scoring";
 import { verifyAddressInHailZone } from "./addressVerification";
 import { storagePut } from "./storage";
+import {
+  getOwnerNotifications, markNotificationRead, markAllNotificationsRead,
+  getUnreadCount, sendNewLeadOwnerAlert, sendQRScanAlert,
+  checkAndSendNeighborTrigger, sendHomeownerConfirmation, initializeDripSequence,
+  checkMilestones,
+} from "./notifications";
+import { setupAllHeartbeatJobs, teardownAllHeartbeatJobs } from "./setupHeartbeats";
 
 export const appRouter = router({
   system: systemRouter,
@@ -27,7 +33,7 @@ export const appRouter = router({
   }),
 
   leads: router({
-    // ─── Public: Address Verification ───────────────────────────────────
+    // Public: Address Verification
     verifyAddress: publicProcedure
       .input(z.object({
         address: z.string().min(5),
@@ -38,7 +44,7 @@ export const appRouter = router({
         return result;
       }),
 
-    // ─── Public: Submit Lead ────────────────────────────────────────────
+    // Public: Submit Lead
     submit: publicProcedure
       .input(z.object({
         address: z.string().min(5),
@@ -55,7 +61,6 @@ export const appRouter = router({
         bestContactTime: z.enum(["morning", "afternoon", "evening", "anytime"]).default("anytime"),
         source: z.enum(["landing_page", "qr_code", "direct", "referral"]).default("landing_page"),
         qrCodeScanned: z.boolean().default(false),
-        // Address verification results from Step 1
         addressVerified: z.boolean().default(false),
         lat: z.string().optional(),
         lng: z.string().optional(),
@@ -106,15 +111,51 @@ export const appRouter = router({
           qrCodeScanned: input.qrCodeScanned,
         });
 
-        // Notify owner
+        // Enhanced notification pipeline
         try {
-          const tierLabel = scoring.tier === "high_return" ? "HIGH RETURN" : scoring.tier === "moderate_return" ? "MODERATE" : "LOW";
-          await notifyOwner({
-            title: `New Lead: ${input.firstName} ${input.lastName} — ${tierLabel} ($${scoring.expectedReturn}/hr)`,
-            content: `Address: ${input.address}, ${input.city} ${input.zip}\nPhone: ${input.phone}\nEmail: ${input.email}\nClaim Filed: ${input.claimFiled}\nContractor: ${input.contractorSelected}\nEstimated Job: $${scoring.estimatedJobValue}\nExpected Return: $${scoring.expectedReturn}/hr\nScore: ${scoring.score}/100\nNext Action: ${scoring.nextAction}`,
+          await sendNewLeadOwnerAlert({
+            ...input,
+            estimatedJobValue: scoring.estimatedJobValue,
+            expectedReturn: scoring.expectedReturn,
+            leadScore: scoring.score,
+            nextAction: scoring.nextAction,
           });
+
+          if (input.qrCodeScanned) {
+            await sendQRScanAlert({
+              firstName: input.firstName,
+              lastName: input.lastName,
+              address: input.address,
+              targetCity: input.targetCity,
+              expectedReturn: scoring.expectedReturn,
+            });
+          }
+
+          await checkAndSendNeighborTrigger({
+            address: input.address,
+            targetCity: input.targetCity,
+            firstName: input.firstName,
+            lastName: input.lastName,
+          });
+
+          await sendHomeownerConfirmation({
+            firstName: input.firstName,
+            email: input.email,
+            address: input.address,
+            targetCity: input.targetCity,
+            stormConfirmationMsg: input.stormConfirmationMsg || null,
+          });
+
+          // Initialize drip sequence for the newest lead
+          const allLeads = await getAllLeads({ city: undefined, status: undefined });
+          const newestLead = allLeads[0];
+          if (newestLead) {
+            await initializeDripSequence(newestLead.id);
+          }
+
+          await checkMilestones();
         } catch (e) {
-          console.warn("Notification failed:", e);
+          console.warn("Notification pipeline error:", e);
         }
 
         return {
@@ -126,7 +167,7 @@ export const appRouter = router({
         };
       }),
 
-    // ─── Public: Social Proof ───────────────────────────────────────────
+    // Public: Social Proof
     cityStats: publicProcedure
       .input(z.object({ city: z.string().optional() }).optional())
       .query(async ({ input }) => {
@@ -139,7 +180,7 @@ export const appRouter = router({
         return await getRecentActivity(input?.city, input?.limit || 5);
       }),
 
-    // ─── Protected: Admin Queries ───────────────────────────────────────
+    // Protected: Admin Queries
     list: protectedProcedure
       .input(z.object({
         city: z.string().optional(),
@@ -165,7 +206,6 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         await updateLeadStatus(input.id, input.status, input.nextAction);
-        // Re-score after status change
         const lead = await getLeadById(input.id);
         if (lead) {
           const scoring = calculateLeadScore(lead as any);
@@ -207,7 +247,49 @@ export const appRouter = router({
       }),
   }),
 
-  // ─── Completed Jobs (Jones Collateral) ──────────────────────────────────────
+  // Notifications
+  notifications: router({
+    list: protectedProcedure
+      .input(z.object({
+        limit: z.number().default(20),
+        unreadOnly: z.boolean().default(false),
+      }).optional())
+      .query(async ({ input }) => {
+        return await getOwnerNotifications(input?.limit || 20, input?.unreadOnly || false);
+      }),
+
+    unreadCount: protectedProcedure.query(async () => {
+      return await getUnreadCount();
+    }),
+
+    markRead: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await markNotificationRead(input.id);
+        return { success: true };
+      }),
+
+    markAllRead: protectedProcedure
+      .mutation(async () => {
+        await markAllNotificationsRead();
+        return { success: true };
+      }),
+  }),
+
+  // Heartbeat Setup (Admin)
+  heartbeats: router({
+    setup: protectedProcedure.mutation(async () => {
+      const result = await setupAllHeartbeatJobs("");
+      return result;
+    }),
+
+    teardown: protectedProcedure.mutation(async () => {
+      const result = await teardownAllHeartbeatJobs("");
+      return result;
+    }),
+  }),
+
+  // Completed Jobs (Jones Collateral)
   completedJobs: router({
     list: protectedProcedure
       .input(z.object({ city: z.string().optional() }).optional())

@@ -94,3 +94,15 @@
 - [x] All storm data accompanied by date stamps, source links
 - [x] NWS source badge on every city landing page
 - [ ] Video links from government/local sources where available (Phase 2)
+
+## Notification Systems (All 10)
+- [ ] 1. Owner notifications — enhanced: new lead alert with ROI score and next action included
+- [ ] 2. Push notifications — real-time alerts to phone for high-value leads, QR scans, deadline approaches
+- [ ] 3. In-app notification panel — bell icon in dashboard with activity feed (new leads, status changes, appointments)
+- [ ] 4. Homeowner confirmation — immediate email/notification after form submission with next steps
+- [ ] 5. Deadline escalation alerts — automated at 90/60/30/7 days for unconverted leads
+- [ ] 6. Daily briefing — morning summary: top 3 actions, new leads overnight, pipeline delta, stale leads
+- [ ] 7. Neighbor trigger — alert when new lead submits from same street/subdivision as existing lead
+- [ ] 8. Inspection follow-up reminders — nudge if inspected lead doesn't advance within 48 hours
+- [ ] 9. Social proof milestones — alerts at 10/25/50 completions per city, conversion rate milestones
+- [ ] 10. Homeowner drip sequence — timed: immediate → 24hr → 3-day → 7-day with escalating urgency

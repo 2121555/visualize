@@ -20,6 +20,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useState, useMemo } from "react";
+import { NotificationPanel } from "@/components/NotificationPanel";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   new: { label: "New", color: "bg-blue-100 text-blue-800" },
@@ -117,6 +118,7 @@ export default function Dashboard() {
             <p className="text-white/60 text-xs">Chief of Staff · {user?.name || "Admin"}</p>
           </div>
           <div className="flex items-center gap-3">
+            <NotificationPanel />
             <Link href="/">
               <span className="text-white/70 text-sm hover:text-white cursor-pointer transition-colors">
                 <ExternalLink className="w-4 h-4 inline mr-1" />View Site

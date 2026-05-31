@@ -168,3 +168,68 @@ export const completedJobs = mysqlTable("completed_jobs", {
 
 export type CompletedJob = typeof completedJobs.$inferSelect;
 export type InsertCompletedJob = typeof completedJobs.$inferInsert;
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+export const notifications = mysqlTable("notifications", {
+  id: int("id").autoincrement().primaryKey(),
+
+  // Who is this for
+  recipientType: mysqlEnum("recipientType", ["owner", "homeowner"]).notNull(),
+  recipientEmail: varchar("recipientEmail", { length: 320 }),
+  leadId: int("leadId"),
+
+  // Content
+  type: mysqlEnum("type", [
+    "new_lead",
+    "high_value_lead",
+    "qr_scan",
+    "deadline_escalation",
+    "daily_briefing",
+    "neighbor_trigger",
+    "inspection_followup",
+    "milestone",
+    "homeowner_confirmation",
+    "homeowner_drip_24h",
+    "homeowner_drip_3d",
+    "homeowner_drip_7d",
+    "status_change",
+  ]).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  content: text("content").notNull(),
+  priority: mysqlEnum("priority", ["low", "medium", "high", "urgent"]).default("medium").notNull(),
+
+  // Delivery
+  channel: mysqlEnum("channel", ["in_app", "push", "email", "owner_notify"]).default("in_app").notNull(),
+  delivered: boolean("delivered").default(false).notNull(),
+  deliveredAt: timestamp("deliveredAt"),
+  read: boolean("read").default(false).notNull(),
+  readAt: timestamp("readAt"),
+
+  // Metadata
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;
+
+// ─── Drip Sequences ─────────────────────────────────────────────────────────
+export const dripSequences = mysqlTable("drip_sequences", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+
+  // Sequence tracking
+  step: mysqlEnum("step", ["confirmation", "24h", "3d", "7d"]).notNull(),
+  scheduledFor: timestamp("scheduledFor").notNull(),
+  sent: boolean("sent").default(false).notNull(),
+  sentAt: timestamp("sentAt"),
+  cancelled: boolean("cancelled").default(false).notNull(),
+
+  // Heartbeat tracking
+  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }),
+
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type DripSequence = typeof dripSequences.$inferSelect;
+export type InsertDripSequence = typeof dripSequences.$inferInsert;
