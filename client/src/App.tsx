@@ -5,33 +5,45 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import CityLanding from "./pages/CityLanding";
+import LeadForm from "./pages/LeadForm";
+import Dashboard from "./pages/Dashboard";
+import LeadDetail from "./pages/LeadDetail";
+import ThankYou from "./pages/ThankYou";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
+      {/* Home — city selector hub */}
+      <Route path="/" component={Home} />
+
+      {/* City-specific landing pages */}
+      <Route path="/naperville" component={() => <CityLanding citySlug="naperville" />} />
+      <Route path="/willow-springs" component={() => <CityLanding citySlug="willow-springs" />} />
+      <Route path="/sag-bridge" component={() => <CityLanding citySlug="sag-bridge" />} />
+      <Route path="/palisades" component={() => <CityLanding citySlug="palisades" />} />
+
+      {/* Multi-step lead capture form */}
+      <Route path="/get-inspection" component={LeadForm} />
+      <Route path="/get-inspection/:city" component={({ params }) => <LeadForm citySlug={params.city} />} />
+      <Route path="/thank-you" component={ThankYou} />
+
+      {/* Admin dashboard */}
+      <Route path="/dashboard" component={Dashboard} />
+      <Route path="/dashboard/leads/:id" component={({ params }) => <LeadDetail leadId={parseInt(params.id)} />} />
+
+      <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
+      <ThemeProvider defaultTheme="light">
         <TooltipProvider>
-          <Toaster />
+          <Toaster position="top-right" richColors />
           <Router />
         </TooltipProvider>
       </ThemeProvider>
