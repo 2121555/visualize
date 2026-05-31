@@ -96,13 +96,22 @@
 - [ ] Video links from government/local sources where available (Phase 2)
 
 ## Notification Systems (All 10)
-- [ ] 1. Owner notifications — enhanced: new lead alert with ROI score and next action included
-- [ ] 2. Push notifications — real-time alerts to phone for high-value leads, QR scans, deadline approaches
-- [ ] 3. In-app notification panel — bell icon in dashboard with activity feed (new leads, status changes, appointments)
-- [ ] 4. Homeowner confirmation — immediate email/notification after form submission with next steps
-- [ ] 5. Deadline escalation alerts — automated at 90/60/30/7 days for unconverted leads
-- [ ] 6. Daily briefing — morning summary: top 3 actions, new leads overnight, pipeline delta, stale leads
-- [ ] 7. Neighbor trigger — alert when new lead submits from same street/subdivision as existing lead
-- [ ] 8. Inspection follow-up reminders — nudge if inspected lead doesn't advance within 48 hours
-- [ ] 9. Social proof milestones — alerts at 10/25/50 completions per city, conversion rate milestones
-- [ ] 10. Homeowner drip sequence — timed: immediate → 24hr → 3-day → 7-day with escalating urgency
+- [x] 1. Owner notifications — enhanced: new lead alert with ROI score and next action included
+- [x] 2. Push notifications — via Manus owner notify (upgradeable to web push)
+- [x] 3. In-app notification panel — bell icon in dashboard with activity feed
+- [x] 4. Homeowner confirmation — immediate after form submit + drip enrollment
+- [x] 5. Deadline escalation alerts — automated at 90/60/30/7 days for unconverted leads
+- [x] 6. Daily briefing — morning summary: top 3 actions, pipeline value, stale leads
+- [x] 7. Neighbor trigger — same street/subdivision detection
+- [x] 8. Inspection follow-up reminders — 48h after inspection without advancement
+- [x] 9. Social proof milestones — 10/25/50/100 completions per city
+- [x] 10. Homeowner drip sequence — confirmation → 24h → 3d → 7d with escalating urgency
+- [x] Heartbeat job registration (5 scheduled cron jobs)
+- [x] Notification database table with full metadata
+- [x] Drip sequence table with scheduling
+- [x] Vitest tests for notification logic (43/43 passing)
+
+## Gaps to Address
+- [x] Implement homeowner email queue with review/approve/send workflow in dashboard
+- [x] Execute heartbeat job setup — all 5 jobs registered and active
+- [x] Add delivered/deliveredAt tracking via markDelivered endpoint

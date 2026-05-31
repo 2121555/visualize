@@ -274,6 +274,48 @@ export const appRouter = router({
         await markAllNotificationsRead();
         return { success: true };
       }),
+
+    pendingHomeownerEmails: protectedProcedure
+      .query(async () => {
+        const { getDb } = await import("./db");
+        const { notifications } = await import("../drizzle/schema");
+        const { eq, and } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        return await db.select().from(notifications)
+          .where(and(
+            eq(notifications.recipientType, "homeowner"),
+            eq(notifications.delivered, false),
+          ))
+          .orderBy(notifications.createdAt)
+          .limit(50);
+      }),
+
+    markDelivered: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { notifications } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return { success: false };
+        await db.update(notifications)
+          .set({ delivered: true, deliveredAt: new Date() })
+          .where(eq(notifications.id, input.id));
+        return { success: true };
+      }),
+
+    dismiss: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { notifications } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return { success: false };
+        await db.delete(notifications).where(eq(notifications.id, input.id));
+        return { success: true };
+      }),
   }),
 
   // Heartbeat Setup (Admin)

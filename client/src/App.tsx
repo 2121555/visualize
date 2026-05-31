@@ -11,6 +11,7 @@ import Dashboard from "./pages/Dashboard";
 import LeadDetail from "./pages/LeadDetail";
 import ThankYou from "./pages/ThankYou";
 import InspectionMode from "./pages/InspectionMode";
+import EmailQueue from "./pages/EmailQueue";
 
 function LeadFormWithCity() {
   const params = useParams<{ city: string }>();
@@ -47,6 +48,7 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/dashboard/leads/:id" component={LeadDetailWithId} />
       <Route path="/dashboard/inspect/:id" component={InspectionModeWithId} />
+      <Route path="/dashboard/emails" component={EmailQueue} />
 
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
