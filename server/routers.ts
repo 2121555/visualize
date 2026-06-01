@@ -19,6 +19,8 @@ import {
   checkMilestones,
 } from "./notifications";
 import { setupAllHeartbeatJobs, teardownAllHeartbeatJobs } from "./setupHeartbeats";
+import { calculateClusterBonus, getRoutingClusters } from "./clustering";
+import { generateLLMAction } from "./llmActions";
 
 export const appRouter = router({
   system: systemRouter,
@@ -245,6 +247,31 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return await getLeadNotes(input.leadId);
       }),
+
+    // Upload inspection damage photo for a lead
+    uploadInspectionPhoto: protectedProcedure
+      .input(z.object({
+        leadId: z.number(),
+        base64Data: z.string(),
+        fileName: z.string(),
+        mimeType: z.string().default("image/jpeg"),
+        damageType: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const buffer = Buffer.from(input.base64Data, "base64");
+        const key = `inspections/${input.leadId}/${Date.now()}_${input.fileName}`;
+        const { url } = await storagePut(key, buffer, input.mimeType);
+
+        // Add a note with the photo reference
+        await addLeadNote({
+          leadId: input.leadId,
+          content: `[INSPECTION PHOTO] ${input.damageType || "Damage"}: ${url}${input.notes ? " — " + input.notes : ""}`,
+          authorName: "Inspector",
+        });
+
+        return { success: true, url };
+      }),
   }),
 
   // Notifications
@@ -369,6 +396,8 @@ export const appRouter = router({
         completionDate: z.string().optional(),
         permissionLevel: z.enum(["full", "anonymous", "count_only"]).default("anonymous"),
         notes: z.string().optional(),
+        beforePhotos: z.array(z.string()).default([]),
+        afterPhotos: z.array(z.string()).default([]),
       }))
       .mutation(async ({ input }) => {
         await createCompletedJob({
@@ -382,12 +411,100 @@ export const appRouter = router({
           completionDate: input.completionDate ? new Date(input.completionDate) : null,
           permissionLevel: input.permissionLevel,
           notes: input.notes || null,
-          beforePhotos: [],
-          afterPhotos: [],
+          beforePhotos: input.beforePhotos,
+          afterPhotos: input.afterPhotos,
         });
         return { success: true };
       }),
+
+    // Upload photo for a completed job
+    uploadPhoto: protectedProcedure
+      .input(z.object({
+        jobId: z.number(),
+        photoType: z.enum(["before", "after"]),
+        base64Data: z.string(),
+        fileName: z.string(),
+        mimeType: z.string().default("image/jpeg"),
+      }))
+      .mutation(async ({ input }) => {
+        const buffer = Buffer.from(input.base64Data, "base64");
+        const key = `completed-jobs/${input.jobId}/${input.photoType}/${input.fileName}`;
+        const { url } = await storagePut(key, buffer, input.mimeType);
+
+        // Update the job's photo array
+        const job = await getCompletedJobById(input.jobId);
+        if (!job) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found" });
+
+        const { getDb } = await import("./db");
+        const { completedJobs } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        const existingPhotos = input.photoType === "before"
+          ? (job.beforePhotos as string[] || [])
+          : (job.afterPhotos as string[] || []);
+        const updatedPhotos = [...existingPhotos, url];
+
+        const updateField = input.photoType === "before"
+          ? { beforePhotos: updatedPhotos }
+          : { afterPhotos: updatedPhotos };
+
+        await db.update(completedJobs)
+          .set(updateField)
+          .where(eq(completedJobs.id, input.jobId));
+
+        return { success: true, url };
+      }),
+    }),
+
+  // ─── Intelligence ─────────────────────────────────────────────────────────
+  intelligence: router({
+    // Get routing clusters for efficient trip planning
+    routingClusters: protectedProcedure
+      .input(z.object({ targetCity: z.string().optional() }))
+      .query(async ({ input }) => {
+        return getRoutingClusters(input.targetCity);
+      }),
+
+    // Get cluster bonus for a specific lead
+    clusterBonus: protectedProcedure
+      .input(z.object({ leadId: z.number(), lat: z.number(), lng: z.number() }))
+      .query(async ({ input }) => {
+        return calculateClusterBonus(input.leadId, input.lat, input.lng);
+      }),
+
+    // Generate AI-powered next action for a lead
+    generateAction: protectedProcedure
+      .input(z.object({ leadId: z.number() }))
+      .mutation(async ({ input }) => {
+        const lead = await getLeadById(input.leadId);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const scoring = calculateLeadScore(lead);
+        const lat = lead.lat ? parseFloat(lead.lat) : 0;
+        const lng = lead.lng ? parseFloat(lead.lng) : 0;
+        const cluster = lat && lng
+          ? await calculateClusterBonus(lead.id, lat, lng)
+          : { bonus: 0, nearbyLeads: [], nearbyJobs: [] };
+
+        const stats = await getLeadStats();
+        const result = await generateLLMAction({
+          lead,
+          scoring,
+          clusterBonus: cluster.bonus,
+          nearbyLeadCount: cluster.nearbyLeads.length,
+          nearbyJobCount: cluster.nearbyJobs.length,
+          pipelineStats: {
+            totalLeads: stats.total,
+            hotLeads: stats.new || 0,
+            todayInspections: stats.appointment_set || 0,
+            pipelineValue: stats.totalPipelineValue || 0,
+          },
+        });
+
+        return result;
+      }),
   }),
 });
-
 export type AppRouter = typeof appRouter;

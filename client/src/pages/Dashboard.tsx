@@ -19,6 +19,7 @@ import {
   Users,
   Zap,
   Mail,
+  CheckCircle,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { NotificationPanel } from "@/components/NotificationPanel";
@@ -122,6 +123,11 @@ export default function Dashboard() {
             <Link href="/dashboard/emails">
               <span className="text-white/70 text-sm hover:text-white cursor-pointer transition-colors">
                 <Mail className="w-4 h-4 inline mr-1" />Emails
+              </span>
+            </Link>
+            <Link href="/dashboard/completed-jobs">
+              <span className="text-white/70 text-sm hover:text-white cursor-pointer transition-colors">
+                <CheckCircle className="w-4 h-4 inline mr-1" />Jobs
               </span>
             </Link>
             <NotificationPanel />

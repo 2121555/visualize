@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -14,31 +14,51 @@ import {
   CloudLightning,
   ExternalLink,
   Home,
+  Image,
   Loader2,
   MapPin,
   Phone,
+  Plus,
   Shield,
+  Trash2,
+  Upload,
   Users,
   Zap,
 } from "lucide-react";
 import { CITY_STORM_DATA, CLAIM_DEADLINE, type CitySlug } from "../../../shared/stormData";
+import { precacheInspection } from "@/hooks/useServiceWorker";
 
 const VALID_CITY_SLUGS: CitySlug[] = ["naperville", "willow-springs", "sag-bridge", "palisades"];
 function isCitySlug(s: string): s is CitySlug {
   return VALID_CITY_SLUGS.includes(s as CitySlug);
 }
 
-type PresentationStep = "overview" | "storm" | "collateral" | "action";
+type PresentationStep = "overview" | "storm" | "photos" | "collateral" | "action";
+
+interface CapturedPhoto {
+  id: string;
+  file: File;
+  preview: string;
+  damageType: string;
+  notes: string;
+  uploaded: boolean;
+  uploadedUrl?: string;
+}
 
 export default function InspectionMode({ leadId }: { leadId: number }) {
   const { isAuthenticated, loading: authLoading } = useAuth();
   const [, navigate] = useLocation();
   const [currentStep, setCurrentStep] = useState<PresentationStep>("overview");
+  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: lead, isLoading } = trpc.leads.getById.useQuery(
     { id: leadId },
     { enabled: isAuthenticated && !!leadId }
   );
+
+  const uploadPhoto = trpc.leads.uploadInspectionPhoto.useMutation();
 
   // Get nearby completed jobs for Jones collateral
   const { data: nearbyJobs } = trpc.completedJobs.nearby.useQuery(
@@ -67,7 +87,7 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
     ? CITY_STORM_DATA[lead.targetCity]
     : null;
 
-  // Cache data for offline use
+  // Cache data for offline use (localStorage + Service Worker)
   useEffect(() => {
     if (lead && cityData) {
       try {
@@ -79,18 +99,79 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
           cachedAt: Date.now(),
         };
         localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+
+        // Pre-cache via Service Worker for true offline support
+        const photoUrls = (collateral || []).flatMap((job: any) => [
+          ...((job.beforePhotos as string[]) || []),
+          ...((job.afterPhotos as string[]) || []),
+        ]);
+        precacheInspection(leadId, photoUrls);
       } catch {
-        // localStorage full or unavailable — silent fail
+        // localStorage full or unavailable
       }
     }
   }, [lead, cityData, collateral, leadId]);
 
   const steps: { key: PresentationStep; label: string; icon: typeof CloudLightning }[] = [
     { key: "overview", label: "Property", icon: Home },
-    { key: "storm", label: "Storm Data", icon: CloudLightning },
+    { key: "storm", label: "Storm", icon: CloudLightning },
+    { key: "photos", label: "Photos", icon: Camera },
     { key: "collateral", label: "Neighbors", icon: Users },
-    { key: "action", label: "Next Steps", icon: CheckCircle },
+    { key: "action", label: "Close", icon: CheckCircle },
   ];
+
+  // Photo capture handlers
+  const handleFileCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const preview = URL.createObjectURL(file);
+      setPhotos((prev) => [
+        ...prev,
+        { id, file, preview, damageType: "Hail Impact", notes: "", uploaded: false },
+      ]);
+    });
+    e.target.value = "";
+  };
+
+  const removePhoto = (id: string) => {
+    setPhotos((prev) => {
+      const photo = prev.find((p) => p.id === id);
+      if (photo) URL.revokeObjectURL(photo.preview);
+      return prev.filter((p) => p.id !== id);
+    });
+  };
+
+  const updatePhotoMeta = (id: string, field: "damageType" | "notes", value: string) => {
+    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
+  };
+
+  const uploadAllPhotos = async () => {
+    setIsUploading(true);
+    const pending = photos.filter((p) => !p.uploaded);
+    for (const photo of pending) {
+      try {
+        const base64 = await fileToBase64(photo.file);
+        const result = await uploadPhoto.mutateAsync({
+          leadId,
+          base64Data: base64,
+          fileName: photo.file.name,
+          mimeType: photo.file.type || "image/jpeg",
+          damageType: photo.damageType,
+          notes: photo.notes,
+        });
+        setPhotos((prev) =>
+          prev.map((p) =>
+            p.id === photo.id ? { ...p, uploaded: true, uploadedUrl: result.url } : p
+          )
+        );
+      } catch (err) {
+        console.error("Upload failed for", photo.file.name, err);
+      }
+    }
+    setIsUploading(false);
+  };
 
   if (authLoading) {
     return (
@@ -140,7 +221,7 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
             </span>
           </Link>
           <div className="flex items-center gap-1">
-            {steps.map((s, i) => (
+            {steps.map((s) => (
               <button
                 key={s.key}
                 onClick={() => setCurrentStep(s.key)}
@@ -238,12 +319,9 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
               <h2 className="font-display text-3xl font-bold text-white mb-2">
                 March 10, 2026 Storm — {cityData.name}
               </h2>
-              <p className="text-white/50 text-sm">
-                Source: National Weather Service Chicago
-              </p>
+              <p className="text-white/50 text-sm">Source: National Weather Service Chicago</p>
             </div>
 
-            {/* Hail Size Visual */}
             <div className="bg-white/5 border border-white/10 rounded-xl p-8 text-center">
               <div className="w-28 h-28 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 mx-auto mb-4 flex items-center justify-center shadow-lg shadow-amber-500/20">
                 <span className="font-display text-3xl font-bold text-black">{cityData.hailSize}</span>
@@ -252,7 +330,6 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
               <p className="text-amber-400 text-xs mt-1">{cityData.hailComparison}</p>
             </div>
 
-            {/* Storm Timeline */}
             <div className="space-y-4">
               <h3 className="font-display text-lg font-bold text-white">Storm Timeline</h3>
               {cityData.stormTimeline.map((event, i) => (
@@ -269,7 +346,6 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
               ))}
             </div>
 
-            {/* NWS Quote */}
             {cityData.nwsQuote && (
               <blockquote className="border-l-2 border-amber-400 pl-4 py-2">
                 <p className="text-sm text-white/70 italic">"{cityData.nwsQuote}"</p>
@@ -277,7 +353,6 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
               </blockquote>
             )}
 
-            {/* Key Stats */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white/5 border border-white/10 rounded-xl p-5 text-center">
                 <p className="font-display text-2xl font-bold text-white">{cityData.affectedProperties}</p>
@@ -290,17 +365,139 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
             </div>
 
             <div className="flex justify-between pt-4">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep("overview")}
-                className="border-white/20 text-white hover:bg-white/10"
-              >
+              <Button variant="outline" onClick={() => setCurrentStep("overview")} className="border-white/20 text-white hover:bg-white/10">
                 <ArrowLeft className="w-4 h-4 mr-2" /> Property
               </Button>
-              <Button
-                onClick={() => setCurrentStep("collateral")}
-                className="bg-white text-black font-bold px-6 py-3 hover:bg-white/90"
+              <Button onClick={() => setCurrentStep("photos")} className="bg-white text-black font-bold px-6 py-3 hover:bg-white/90">
+                Capture Photos <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP: Photo Capture ─────────────────────────────────────────── */}
+        {currentStep === "photos" && (
+          <div className="space-y-6 animate-fade-in-up">
+            <div className="text-center mb-8">
+              <p className="text-white/40 text-xs uppercase tracking-widest mb-2">Document Damage</p>
+              <h2 className="font-display text-3xl font-bold text-white mb-2">
+                Capture Inspection Photos
+              </h2>
+              <p className="text-white/50 text-sm">
+                Take photos of hail damage on roof, siding, gutters, and windows
+              </p>
+            </div>
+
+            {/* Camera Capture Button */}
+            <div className="flex flex-col items-center gap-4">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                onChange={handleFileCapture}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-32 h-32 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30 active:scale-95 transition-transform"
               >
+                <Camera className="w-12 h-12 text-black" />
+              </button>
+              <p className="text-white/50 text-sm">Tap to capture or select photos</p>
+            </div>
+
+            {/* Photo Gallery */}
+            {photos.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display text-lg font-bold text-white">
+                    {photos.length} {photos.length === 1 ? "Photo" : "Photos"} Captured
+                  </h3>
+                  <Badge className="bg-green-900/50 text-green-300">
+                    {photos.filter((p) => p.uploaded).length} uploaded
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {photos.map((photo) => (
+                    <div key={photo.id} className="relative bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+                      <img
+                        src={photo.preview}
+                        alt={photo.damageType}
+                        className="w-full h-32 object-cover"
+                      />
+                      {photo.uploaded && (
+                        <div className="absolute top-2 right-2 bg-green-500 rounded-full p-1">
+                          <CheckCircle className="w-3 h-3 text-white" />
+                        </div>
+                      )}
+                      <div className="p-2 space-y-1">
+                        <select
+                          value={photo.damageType}
+                          onChange={(e) => updatePhotoMeta(photo.id, "damageType", e.target.value)}
+                          className="w-full bg-white/10 border border-white/20 rounded px-2 py-1 text-xs text-white"
+                        >
+                          <option value="Hail Impact">Hail Impact</option>
+                          <option value="Granule Loss">Granule Loss</option>
+                          <option value="Cracked Shingle">Cracked Shingle</option>
+                          <option value="Dented Vent">Dented Vent</option>
+                          <option value="Gutter Damage">Gutter Damage</option>
+                          <option value="Siding Damage">Siding Damage</option>
+                          <option value="Window Damage">Window Damage</option>
+                          <option value="Other">Other</option>
+                        </select>
+                        <input
+                          type="text"
+                          placeholder="Notes..."
+                          value={photo.notes}
+                          onChange={(e) => updatePhotoMeta(photo.id, "notes", e.target.value)}
+                          className="w-full bg-white/10 border border-white/20 rounded px-2 py-1 text-xs text-white placeholder:text-white/30"
+                        />
+                      </div>
+                      <button
+                        onClick={() => removePhoto(photo.id)}
+                        className="absolute top-2 left-2 bg-red-500/80 rounded-full p-1 hover:bg-red-500"
+                      >
+                        <Trash2 className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Upload Button */}
+                {photos.some((p) => !p.uploaded) && (
+                  <Button
+                    onClick={uploadAllPhotos}
+                    disabled={isUploading}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3"
+                  >
+                    {isUploading ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</>
+                    ) : (
+                      <><Upload className="w-4 h-4 mr-2" /> Upload {photos.filter((p) => !p.uploaded).length} Photos</>
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {photos.length === 0 && (
+              <div className="bg-white/5 border border-white/10 border-dashed rounded-xl p-8 text-center">
+                <Image className="w-12 h-12 text-white/20 mx-auto mb-3" />
+                <p className="text-white/50 text-sm">No photos captured yet</p>
+                <p className="text-white/30 text-xs mt-1">
+                  Use the camera button above to document roof, siding, and gutter damage
+                </p>
+              </div>
+            )}
+
+            <div className="flex justify-between pt-4">
+              <Button variant="outline" onClick={() => setCurrentStep("storm")} className="border-white/20 text-white hover:bg-white/10">
+                <ArrowLeft className="w-4 h-4 mr-2" /> Storm Data
+              </Button>
+              <Button onClick={() => setCurrentStep("collateral")} className="bg-white text-black font-bold px-6 py-3 hover:bg-white/90">
                 Neighbor Activity <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </div>
@@ -312,9 +509,7 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
           <div className="space-y-6 animate-fade-in-up">
             <div className="text-center mb-8">
               <p className="text-white/40 text-xs uppercase tracking-widest mb-2">Your Neighbors Are Acting</p>
-              <h2 className="font-display text-3xl font-bold text-white mb-2">
-                Nearby Restorations
-              </h2>
+              <h2 className="font-display text-3xl font-bold text-white mb-2">Nearby Restorations</h2>
               <p className="text-white/50 text-sm">
                 Homes near {lead.address.split(",")[0]} that have already completed storm restoration
               </p>
@@ -347,6 +542,14 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
                         </Badge>
                       )}
                     </div>
+                    {/* Show before/after photos if available */}
+                    {(job.afterPhotos as string[] || []).length > 0 && (
+                      <div className="mt-3 flex gap-2 overflow-x-auto">
+                        {(job.afterPhotos as string[]).slice(0, 3).map((url, pi) => (
+                          <img key={pi} src={url} alt="Completed work" className="w-20 h-20 rounded-lg object-cover flex-shrink-0" />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -360,9 +563,7 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
             ) : (
               <div className="bg-white/5 border border-white/10 rounded-xl p-8 text-center">
                 <Users className="w-12 h-12 text-white/20 mx-auto mb-4" />
-                <p className="text-white/60 text-sm mb-2">
-                  No completed restorations logged nearby yet.
-                </p>
+                <p className="text-white/60 text-sm mb-2">No completed restorations logged nearby yet.</p>
                 <p className="text-white/40 text-xs">
                   As you complete jobs, they'll appear here as social proof for future inspections.
                 </p>
@@ -370,17 +571,10 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
             )}
 
             <div className="flex justify-between pt-4">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep("storm")}
-                className="border-white/20 text-white hover:bg-white/10"
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" /> Storm Data
+              <Button variant="outline" onClick={() => setCurrentStep("photos")} className="border-white/20 text-white hover:bg-white/10">
+                <ArrowLeft className="w-4 h-4 mr-2" /> Photos
               </Button>
-              <Button
-                onClick={() => setCurrentStep("action")}
-                className="bg-white text-black font-bold px-6 py-3 hover:bg-white/90"
-              >
+              <Button onClick={() => setCurrentStep("action")} className="bg-white text-black font-bold px-6 py-3 hover:bg-white/90">
                 Next Steps <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </div>
@@ -392,9 +586,7 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
           <div className="space-y-6 animate-fade-in-up">
             <div className="text-center mb-8">
               <p className="text-white/40 text-xs uppercase tracking-widest mb-2">Recommended Action</p>
-              <h2 className="font-display text-3xl font-bold text-white mb-2">
-                Here's What Happens Next
-              </h2>
+              <h2 className="font-display text-3xl font-bold text-white mb-2">Here's What Happens Next</h2>
             </div>
 
             <div className="space-y-4">
@@ -424,9 +616,7 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
                 <div
                   key={step}
                   className={`rounded-xl p-5 border ${
-                    active
-                      ? "bg-amber-900/20 border-amber-500/30"
-                      : "bg-white/5 border-white/10"
+                    active ? "bg-amber-900/20 border-amber-500/30" : "bg-white/5 border-white/10"
                   }`}
                 >
                   <div className="flex items-start gap-4">
@@ -474,11 +664,7 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
             </div>
 
             <div className="flex justify-between pt-4">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep("collateral")}
-                className="border-white/20 text-white hover:bg-white/10"
-              >
+              <Button variant="outline" onClick={() => setCurrentStep("collateral")} className="border-white/20 text-white hover:bg-white/10">
                 <ArrowLeft className="w-4 h-4 mr-2" /> Neighbors
               </Button>
               <Link href={`/dashboard/leads/${leadId}`}>
@@ -492,4 +678,19 @@ export default function InspectionMode({ leadId }: { leadId: number }) {
       </div>
     </div>
   );
+}
+
+// Utility: convert File to base64 string (without data URL prefix)
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data:image/...;base64, prefix
+      const base64 = result.split(",")[1] || result;
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }

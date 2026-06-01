@@ -12,6 +12,7 @@ import LeadDetail from "./pages/LeadDetail";
 import ThankYou from "./pages/ThankYou";
 import InspectionMode from "./pages/InspectionMode";
 import EmailQueue from "./pages/EmailQueue";
+import CompletedJobs from "./pages/CompletedJobs";
 
 function LeadFormWithCity() {
   const params = useParams<{ city: string }>();
@@ -49,6 +50,7 @@ function Router() {
       <Route path="/dashboard/leads/:id" component={LeadDetailWithId} />
       <Route path="/dashboard/inspect/:id" component={InspectionModeWithId} />
       <Route path="/dashboard/emails" component={EmailQueue} />
+      <Route path="/dashboard/completed-jobs" component={CompletedJobs} />
 
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />

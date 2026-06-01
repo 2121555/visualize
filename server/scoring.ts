@@ -45,7 +45,7 @@ const CITY_AVG_JOB_VALUE: Record<string, number> = {
 
 // ─── Scoring Functions ────────────────────────────────────────────────────────
 
-export function calculateLeadScore(lead: Partial<Lead>): ScoringResult {
+export function calculateLeadScore(lead: Partial<Lead> & { clusterBonus?: number }): ScoringResult {
   const factors: ScoreBreakdown["factors"] = [];
 
   // ── 1. Estimated Job Value ──────────────────────────────────────────────
@@ -142,7 +142,20 @@ export function calculateLeadScore(lead: Partial<Lead>): ScoringResult {
     }
   }
 
-  // ── 5. Expected Return ──────────────────────────────────────────────────
+  // ── 5. Geographic Clustering Bonus ──────────────────────────────────────
+  // If this lead has nearby leads/completed jobs, reduce time-to-close
+  // (multiple inspections in one trip = efficiency gain)
+  if (lead.clusterBonus && lead.clusterBonus > 0) {
+    const bonus = Math.min(lead.clusterBonus, 3); // max 3 nearby leads
+    timeToCloseHours = Math.max(1, timeToCloseHours - (bonus * 0.5));
+    factors.push({
+      name: "Geographic Cluster",
+      impact: `-${(bonus * 0.5).toFixed(1)}h time-to-close`,
+      detail: `${bonus} other leads/jobs within 1 mile — route together for efficiency`,
+    });
+  }
+
+  // ── 6. Expected Return ──────────────────────────────────────────────────
   const expectedReturn = Math.round((jobValue * closeProbability) / timeToCloseHours);
 
   // ── 6. Composite Score (0-100) for UI display ───────────────────────────

@@ -47,13 +47,13 @@
 - [x] Pipeline value and daily briefing
 
 ## Phase 7: QA & Polish
-- [ ] Mobile responsiveness verification on all pages
-- [ ] All CTAs functional (browser QA needed)
-- [ ] All source links open correctly (browser QA needed)
+- [x] Mobile responsiveness verification on all pages (verified via browser QA)
+- [x] All CTAs functional (verified — links to form work correctly)
+- [x] All source links open correctly (NWS badges verified)
 - [x] Urgency countdown logic (targets March 10, 2027)
 - [x] Form validation on all steps
 - [x] Vitest tests for backend procedures (23/23 passing)
-- [ ] Final checkpoint
+- [x] Final checkpoint
 
 ## Social Proof & Neighbor Activity
 - [x] Backend tRPC: getCityStats query (public) — returns anonymized counts per city
@@ -69,31 +69,31 @@
 - [x] Time decay factor — leads lose value every hour without contact
 - [x] Tier assignment based on expected return, not just qualification score
 - [x] Next-action engine with Chief of Staff voice
-- [ ] Geographic clustering bonus — multiple leads near each other = efficient routing (Phase 2)
-- [ ] AI-powered next-action via LLM with structured output (Phase 2)
+- [x] Geographic clustering bonus — haversine distance + cluster routing
+- [x] AI-powered next-action via LLM with structured output (Chief of Staff voice)
 
 ## Completed Jobs & Jones Collateral
 - [x] Database schema: completedJobs table (address, lat/lng, before/after photos, completion date, permission level)
 - [x] Backend tRPC: addCompletedJob mutation (admin)
 - [x] Backend tRPC: getNearbyCompletedJobs query — proximity search by lat/lng
 - [x] Backend tRPC: listCompletedJobs query (admin)
-- [ ] Photo upload for before/after images to S3 (Phase 2)
+- [x] Photo upload for before/after images to S3
 
 ## Inspection Presentation Mode
 - [x] Dedicated /inspect/:leadId route — mobile-optimized for iPad
 - [x] Pre-loaded storm evidence for the lead's city
 - [x] Lead details and storm confirmation displayed
 - [x] Nearby Jones collateral section — auto-populated from completedJobs proximity query
-- [ ] Damage photo capture and upload from iPhone (Phase 2)
-- [ ] Digital authorization form with e-signature (Phase 2)
-- [ ] PWA Service Worker for offline caching of inspection data (Phase 2)
-- [ ] Pre-cache collateral for scheduled inspections (Phase 2)
-- [ ] Offline fallback — works without connectivity for presentation flow (Phase 2)
+- [x] Damage photo capture and upload from iPhone (camera integration in inspection mode)
+- [ ] Digital authorization form with e-signature (SKIPPED per user)
+- [x] PWA Service Worker for offline caching of inspection data
+- [x] Pre-cache collateral for scheduled inspections (via SW message API)
+- [x] Offline fallback — network-first with cache fallback for all routes
 
 ## Credibility & Source Tracking
 - [x] All storm data accompanied by date stamps, source links
 - [x] NWS source badge on every city landing page
-- [ ] Video links from government/local sources where available (Phase 2)
+- [ ] Video links from government/local sources (SKIPPED per user)
 
 ## Notification Systems (All 10)
 - [x] 1. Owner notifications — enhanced: new lead alert with ROI score and next action included
